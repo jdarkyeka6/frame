@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-26
 
     steps:
       - name: Check out Frame
@@ -24,8 +24,8 @@ jobs:
 
       - name: Select Xcode
         run: |
-          if [ -d /Applications/Xcode_26.2.app ]; then
-            sudo xcode-select -s /Applications/Xcode_26.2.app
+          if [ -d /Applications/Xcode_26.6.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.6.app
           fi
           xcodebuild -version
 

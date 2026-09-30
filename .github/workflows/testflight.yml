@@ -1,0 +1,69 @@
+name: Frame to TestFlight
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths-ignore:
+      - "README.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frame-testflight
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Check out Frame
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          if [ -d /Applications/Xcode_26.3.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.3.app
+          fi
+          xcodebuild -version
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Validate Expo project
+        run: npx expo-doctor
+
+      - name: Generate native iOS project
+        env:
+          CI: "1"
+        run: npx expo prebuild --platform ios --clean
+
+      - name: Install TestFlight lane
+        run: |
+          mkdir -p ios/fastlane
+          cp ios-ci/Gemfile ios/Gemfile
+          cp ios-ci/Fastfile ios/fastlane/Fastfile
+
+      - name: Set up Ruby and Fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: ios
+
+      - name: Build, sign and upload Frame
+        working-directory: ios
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_CONTENT: ${{ secrets.ASC_KEY_CONTENT }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: bundle exec fastlane beta

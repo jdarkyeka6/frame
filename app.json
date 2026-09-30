@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Frame",
+    "slug": "frame-photo-library",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "icon": "./assets/icon.png",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.jdarkyeka6.frame",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "plugins": [
+      "expo-document-picker"
+    ]
+  }
+}

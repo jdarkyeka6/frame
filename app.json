@@ -2,7 +2,7 @@
   "expo": {
     "name": "Frame",
     "slug": "frame-photo-library",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "ios": {
@@ -14,7 +14,15 @@
       }
     },
     "plugins": [
-      "expo-document-picker"
+      "expo-document-picker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Frame accesses your photo library only so you can choose photos to copy into Frame.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ]
     ]
   }
 }

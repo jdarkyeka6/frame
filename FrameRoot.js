@@ -16,6 +16,7 @@ import {
 
 const STORAGE_KEY = 'frame.library.v2';
 const LEGACY_STORAGE_KEY = 'frame.library.v1';
+const GOOGLE_BATCH_LIMIT = 2000;
 
 function parseLibrary(raw) {
   try {
@@ -30,68 +31,138 @@ export default function FrameRoot() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
   const importHandlerRef = useRef(null);
+  const busyRef = useRef(false);
+  const batchNumberRef = useRef(0);
+  const bulkImportedRef = useRef(0);
 
-  async function handleGoogleImport() {
-    if (busy) return;
+  async function runGoogleBatch() {
+    if (busyRef.current) return;
     if (!isGoogleDriveConfigured()) {
       Alert.alert(
         'Google Photos setup needed',
-        'This build does not have Frame’s Google OAuth client ID yet. The app code is ready, but Google sign-in must be connected to this iOS build first.',
+        'This build does not have Frame’s Google OAuth client ID yet. Google sign-in must be connected to this iOS build first.',
       );
       return;
     }
 
+    busyRef.current = true;
     setBusy(true);
-    setProgress('Connecting to Google…');
+    setProgress(`Opening Google Photos batch ${batchNumberRef.current + 1}…`);
+
+    let result = null;
+    let failure = null;
 
     try {
       const imported = await importGooglePhotosToDrive((status) => {
         if (status?.message) setProgress(status.message);
       });
-      if (!imported.length) return;
 
-      const currentRaw = await AsyncStorage.getItem(STORAGE_KEY)
-        || await AsyncStorage.getItem(LEGACY_STORAGE_KEY);
-      const current = parseLibrary(currentRaw);
-      const existingGoogleIds = new Set(
-        current.map((item) => item.googlePhotosId).filter(Boolean),
-      );
+      if (!imported.length) {
+        result = { selected: 0, fresh: 0, duplicates: 0 };
+      } else {
+        const currentRaw = await AsyncStorage.getItem(STORAGE_KEY)
+          || await AsyncStorage.getItem(LEGACY_STORAGE_KEY);
+        const current = parseLibrary(currentRaw);
+        const existingGoogleIds = new Set(
+          current.map((item) => item.googlePhotosId).filter(Boolean),
+        );
 
-      const fresh = [];
-      const duplicates = [];
-      for (const item of imported) {
-        if (item.googlePhotosId && existingGoogleIds.has(item.googlePhotosId)) {
-          duplicates.push(item);
-        } else {
-          fresh.push(item);
-          if (item.googlePhotosId) existingGoogleIds.add(item.googlePhotosId);
+        const fresh = [];
+        const duplicates = [];
+        for (const item of imported) {
+          if (item.googlePhotosId && existingGoogleIds.has(item.googlePhotosId)) {
+            duplicates.push(item);
+          } else {
+            fresh.push(item);
+            if (item.googlePhotosId) existingGoogleIds.add(item.googlePhotosId);
+          }
         }
-      }
 
-      for (const duplicate of duplicates) {
-        await deleteFrameDriveCopy(duplicate).catch(() => false);
-      }
+        for (const duplicate of duplicates) {
+          await deleteFrameDriveCopy(duplicate).catch(() => false);
+        }
 
-      if (fresh.length) {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(fresh.concat(current)));
-        setAppRevision((value) => value + 1);
-      }
+        if (fresh.length) {
+          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(fresh.concat(current)));
+          setAppRevision((value) => value + 1);
+        }
 
-      Alert.alert(
-        'Google Photos imported',
-        fresh.length
-          ? `${fresh.length} item${fresh.length === 1 ? '' : 's'} saved to Frame. Originals in Google Photos were not changed.`
-          : 'Those photos are already in Frame. Your Google Photos originals were not changed.',
-      );
+        batchNumberRef.current += 1;
+        bulkImportedRef.current += fresh.length;
+        result = {
+          selected: imported.length,
+          fresh: fresh.length,
+          duplicates: duplicates.length,
+        };
+      }
     } catch (error) {
-      Alert.alert('Google Photos import failed', error?.message || 'Frame could not import those photos.');
+      failure = error;
     } finally {
+      busyRef.current = false;
       setBusy(false);
       setProgress('');
     }
+
+    if (failure) {
+      Alert.alert(
+        'Google Photos import failed',
+        failure?.message || 'Frame could not import that batch.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Try again', onPress: () => setTimeout(runGoogleBatch, 150) },
+        ],
+      );
+      return;
+    }
+
+    if (!result?.selected) {
+      Alert.alert(
+        'No photos selected',
+        bulkImportedRef.current
+          ? `${bulkImportedRef.current} photo${bulkImportedRef.current === 1 ? '' : 's'} imported in this bulk session.`
+          : 'Nothing was imported.',
+      );
+      return;
+    }
+
+    const duplicateText = result.duplicates
+      ? ` ${result.duplicates} duplicate${result.duplicates === 1 ? '' : 's'} skipped.`
+      : '';
+
+    Alert.alert(
+      `Batch ${batchNumberRef.current} imported`,
+      `${result.fresh} new photo${result.fresh === 1 ? '' : 's'} saved to Frame.${duplicateText}\n\nTotal this session: ${bulkImportedRef.current}. Google allows up to ${GOOGLE_BATCH_LIMIT.toLocaleString()} per picker session, so Frame can open the next batch immediately.`,
+      [
+        { text: 'Done', style: 'cancel' },
+        { text: 'Import next batch', onPress: () => setTimeout(runGoogleBatch, 150) },
+      ],
+    );
   }
 
-  importHandlerRef.current = handleGoogleImport;
+  function startGoogleBulkImport() {
+    if (busyRef.current) return;
+    if (!isGoogleDriveConfigured()) {
+      Alert.alert(
+        'Google Photos setup needed',
+        'This build does not have Frame’s Google OAuth client ID yet. Google sign-in must be connected to this iOS build first.',
+      );
+      return;
+    }
+
+    batchNumberRef.current = 0;
+    bulkImportedRef.current = 0;
+
+    Alert.alert(
+      'Bulk import from Google Photos',
+      `Google caps each Photos Picker session at ${GOOGLE_BATCH_LIMIT.toLocaleString()} items. Frame cannot override that Google limit, so Frame will save each batch to Drive, skip duplicates, and then offer the next batch automatically.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Start batch 1', onPress: () => setTimeout(runGoogleBatch, 150) },
+      ],
+    );
+  }
+
+  importHandlerRef.current = startGoogleBulkImport;
 
   useEffect(() => {
     const originalAlert = Alert.alert;
@@ -101,10 +172,12 @@ export default function FrameRoot() {
     Alert.alert = (title, message, buttons, options) => {
       if (title === 'Import photos' && Array.isArray(buttons)) {
         const nextButtons = buttons.slice();
-        const alreadyAdded = nextButtons.some((button) => button?.text === 'Google Photos');
+        const alreadyAdded = nextButtons.some((button) =>
+          String(button?.text || '').startsWith('Google Photos'),
+        );
         if (!alreadyAdded) {
           const googleButton = {
-            text: 'Google Photos',
+            text: 'Google Photos • bulk batches',
             onPress: () => importHandlerRef.current?.(),
           };
           const cancelIndex = nextButtons.findIndex((button) => button?.style === 'cancel');
@@ -153,10 +226,10 @@ export default function FrameRoot() {
         <View style={styles.blocker}>
           <View style={styles.panel}>
             <ActivityIndicator size="large" color="#FFFFFF" />
-            <Text style={styles.title}>Importing from Google Photos</Text>
+            <Text style={styles.title}>Importing Google Photos batch</Text>
             <Text style={styles.body}>{progress || 'Preparing Frame Drive…'}</Text>
             <Text style={styles.note}>
-              Frame only keeps a small preview on this iPhone. Full originals are copied to Frame’s folder in Google Drive one at a time.
+              Google caps each picker session at 2,000 items. Frame saves the batch to Drive, keeps only small previews on this iPhone, and can immediately start another batch when it finishes.
             </Text>
           </View>
         </View>

@@ -17,5 +17,6 @@ jobs:
         with:
           node-version: 22
       - run: npm install
+      - run: npm dedupe
       - run: npx expo-doctor
       - run: npx expo export --platform ios --output-dir dist-check

@@ -2,7 +2,7 @@
   "name": "frame-photo-library",
   "version": "0.2.0",
   "private": true,
-  "main": "node_modules/expo/AppEntry.js",
+  "main": "index.js",
   "scripts": {
     "start": "expo start",
     "doctor": "expo-doctor",
@@ -11,11 +11,15 @@
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "^57.0.9",
+    "expo-auth-session": "~57.0.13",
+    "expo-crypto": "~57.0.3",
     "expo-document-picker": "~57.0.2",
     "expo-file-system": "~57.0.7",
     "expo-image": "~57.0.5",
     "expo-image-picker": "~57.0.20",
+    "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
+    "expo-web-browser": "~57.0.3",
     "react": "19.2.3",
     "react-native": "0.86.3"
   },

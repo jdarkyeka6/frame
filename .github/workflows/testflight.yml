@@ -17,6 +17,8 @@ concurrency:
 jobs:
   build:
     runs-on: macos-26
+    env:
+      EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: ${{ secrets.GOOGLE_IOS_CLIENT_ID }}
 
     steps:
       - name: Check out Frame
@@ -35,7 +37,9 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: npm install
+        run: |
+          npm install
+          npm dedupe
 
       - name: Validate Expo project
         run: npx expo-doctor

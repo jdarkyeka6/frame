@@ -16,6 +16,7 @@
     },
     "plugins": [
       "expo-document-picker",
+      "react-native-zip-archive",
       [
         "expo-image-picker",
         {

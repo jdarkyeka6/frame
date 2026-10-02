@@ -61,10 +61,10 @@ export async function pickGooglePhotos(token, onProgress) {
   }
 
   try {
-    onProgress?.({ phase: 'pick', message: 'Choose photos in Google Photos' });
+    onProgress?.({ phase: 'pick', message: 'Choose up to 2,000 photos for this batch' });
     await WebBrowser.openBrowserAsync(session.pickerUri);
 
-    onProgress?.({ phase: 'waiting', message: 'Reading your selection…' });
+    onProgress?.({ phase: 'waiting', message: 'Reading this Google Photos batch…' });
     await waitForPicker(token, session);
     return await listPickedMedia(token, session.id);
   } finally {

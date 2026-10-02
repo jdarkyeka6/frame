@@ -1,4 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import { unzip } from 'react-native-zip-archive';
 import { googleJson } from './googleApi';
 import { getGoogleAccessToken } from './googleAuth';
@@ -116,6 +118,37 @@ async function makeThumb(token, preferredDriveId, fallbackDriveId, key) {
   return null;
 }
 
+async function makeLocalPreview(localUri, name, key) {
+  const destination = `${THUMB_ROOT}${safePart(key)}.jpg`;
+  await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => {});
+  let generated = null;
+
+  try {
+    if (VIDEO_EXTENSIONS.has(extension(name))) {
+      generated = await VideoThumbnails.getThumbnailAsync(localUri, {
+        time: 100,
+        quality: 0.65,
+      });
+    } else {
+      generated = await ImageManipulator.manipulateAsync(
+        localUri,
+        [{ resize: { width: 512 } }],
+        { compress: 0.72, format: ImageManipulator.SaveFormat.JPEG },
+      );
+    }
+
+    if (!generated?.uri) return null;
+    await FileSystem.copyAsync({ from: generated.uri, to: destination });
+    return destination;
+  } catch {
+    return null;
+  } finally {
+    if (generated?.uri && generated.uri !== localUri && generated.uri !== destination) {
+      await FileSystem.deleteAsync(generated.uri, { idempotent: true }).catch(() => {});
+    }
+  }
+}
+
 async function copyLooseDriveMedia(token, folderId, file, index) {
   const sourceKey = `drive:${file.id}`;
   let copied = null;
@@ -201,7 +234,12 @@ async function importZip(token, folderId, archive, existingKeys, onProgress, cou
           source: 'googleDriveZip',
           sourceId: `${archive.id}:${entry.relativePath}`,
         });
-        const thumb = await makeThumb(token, driveFileId, null, `zip-${archive.id}-${i}`);
+        const localThumb = await makeLocalPreview(
+          entry.uri,
+          name,
+          `zip-${archive.id}-${safePart(entry.relativePath)}-${i}`,
+        );
+        const thumb = localThumb || await makeThumb(token, driveFileId, null, `zip-${archive.id}-${i}`);
         const info = await FileSystem.getInfoAsync(entry.uri, { md5: true }).catch(() => entry.info || {});
 
         imported.push({

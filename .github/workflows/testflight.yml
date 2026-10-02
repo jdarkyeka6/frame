@@ -18,7 +18,7 @@ jobs:
   build:
     runs-on: macos-26
     env:
-      EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: ${{ secrets.GOOGLE_IOS_CLIENT_ID }}
+      EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: 526743724927-e3g1dn5vleep6g9ip6bsh3g5va3k1kfh.apps.googleusercontent.com
 
     steps:
       - name: Check out Frame
@@ -28,13 +28,13 @@ jobs:
         shell: bash
         run: |
           if [ -z "$EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID" ]; then
-            echo "::error::Missing GitHub Actions secret GOOGLE_IOS_CLIENT_ID. Frame Google Photos cannot work without it."
+            echo "::error::Missing Google iOS OAuth client ID. Frame Google Photos cannot work without it."
             exit 1
           fi
           case "$EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID" in
             *.apps.googleusercontent.com) ;;
             *)
-              echo "::error::GOOGLE_IOS_CLIENT_ID is not a valid Google iOS OAuth client ID."
+              echo "::error::Google iOS OAuth client ID is not valid."
               exit 1
               ;;
           esac

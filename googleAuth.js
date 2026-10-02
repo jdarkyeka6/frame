@@ -4,12 +4,14 @@ import * as WebBrowser from 'expo-web-browser';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const GOOGLE_TOKEN_KEY = 'frame.google.token.v1';
+// v2 intentionally forces a fresh consent after adding Drive read access.
+const GOOGLE_TOKEN_KEY = 'frame.google.token.v2';
 
 const GOOGLE_SCOPES = [
   'openid',
   'profile',
   'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/drive.readonly',
   'https://www.googleapis.com/auth/photospicker.mediaitems.readonly',
 ];
 

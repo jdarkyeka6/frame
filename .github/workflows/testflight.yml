@@ -17,6 +17,8 @@ concurrency:
 jobs:
   build:
     runs-on: macos-26
+    env:
+      EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: ${{ secrets.GOOGLE_IOS_CLIENT_ID }}
 
     steps:
       - name: Check out Frame

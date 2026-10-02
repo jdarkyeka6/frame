@@ -13,6 +13,7 @@ import {
   importGooglePhotosToDrive,
   isGoogleDriveConfigured,
 } from './googleDrive';
+import { importGoogleDriveLibrary } from './googleDriveImport';
 
 const STORAGE_KEY = 'frame.library.v2';
 const LEGACY_STORAGE_KEY = 'frame.library.v1';
@@ -29,11 +30,28 @@ function parseLibrary(raw) {
 export default function FrameRoot() {
   const [appRevision, setAppRevision] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [busyTitle, setBusyTitle] = useState('Importing');
+  const [busyNote, setBusyNote] = useState('');
   const [progress, setProgress] = useState('');
-  const importHandlerRef = useRef(null);
+  const photosImportHandlerRef = useRef(null);
+  const driveImportHandlerRef = useRef(null);
   const busyRef = useRef(false);
   const batchNumberRef = useRef(0);
   const bulkImportedRef = useRef(0);
+
+  function beginBusy(title, note, message) {
+    busyRef.current = true;
+    setBusyTitle(title);
+    setBusyNote(note);
+    setProgress(message || 'Preparing…');
+    setBusy(true);
+  }
+
+  function endBusy() {
+    busyRef.current = false;
+    setBusy(false);
+    setProgress('');
+  }
 
   async function runGoogleBatch() {
     if (busyRef.current) return;
@@ -45,9 +63,11 @@ export default function FrameRoot() {
       return;
     }
 
-    busyRef.current = true;
-    setBusy(true);
-    setProgress(`Opening Google Photos batch ${batchNumberRef.current + 1}…`);
+    beginBusy(
+      'Importing Google Photos batch',
+      'Google caps each picker session at 2,000 items. Frame saves each batch to Drive, keeps small previews on this iPhone, and can immediately start another batch.',
+      `Opening Google Photos batch ${batchNumberRef.current + 1}…`,
+    );
 
     let result = null;
     let failure = null;
@@ -98,9 +118,7 @@ export default function FrameRoot() {
     } catch (error) {
       failure = error;
     } finally {
-      busyRef.current = false;
-      setBusy(false);
-      setProgress('');
+      endBusy();
     }
 
     if (failure) {
@@ -162,7 +180,86 @@ export default function FrameRoot() {
     );
   }
 
-  importHandlerRef.current = startGoogleBulkImport;
+  async function runDriveImport() {
+    if (busyRef.current) return;
+    if (!isGoogleDriveConfigured()) {
+      Alert.alert(
+        'Google Drive setup needed',
+        'This build does not have Frame’s Google OAuth client ID yet.',
+      );
+      return;
+    }
+
+    beginBusy(
+      'Importing from Google Drive',
+      'Frame scans Drive for photos, videos and ZIP archives. Normal files are copied into Frame’s Drive folder. ZIPs are downloaded and unpacked one archive at a time, then their media is saved to Frame. Source files are never deleted.',
+      'Connecting to Google Drive…',
+    );
+
+    let result = null;
+    let failure = null;
+
+    try {
+      const currentRaw = await AsyncStorage.getItem(STORAGE_KEY)
+        || await AsyncStorage.getItem(LEGACY_STORAGE_KEY);
+      const current = parseLibrary(currentRaw);
+      const existingSourceKeys = current.map((item) => item.sourceKey).filter(Boolean);
+
+      result = await importGoogleDriveLibrary(existingSourceKeys, (status) => {
+        if (status?.message) setProgress(status.message);
+      });
+
+      if (result.imported.length) {
+        await AsyncStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify(result.imported.concat(current)),
+        );
+        setAppRevision((value) => value + 1);
+      }
+    } catch (error) {
+      failure = error;
+    } finally {
+      endBusy();
+    }
+
+    if (failure) {
+      Alert.alert(
+        'Google Drive import failed',
+        failure?.message || 'Frame could not finish the Drive import.',
+      );
+      return;
+    }
+
+    if (!result?.candidates) {
+      Alert.alert(
+        'Nothing to import',
+        'Frame did not find any photos, videos, or ZIP archives in this Google Drive.',
+      );
+      return;
+    }
+
+    Alert.alert(
+      'Drive import finished',
+      result.imported.length
+        ? `${result.imported.length.toLocaleString()} new photo/video${result.imported.length === 1 ? '' : 's'} added to Frame.${result.skipped ? ` ${result.skipped.toLocaleString()} already-imported item${result.skipped === 1 ? '' : 's'} skipped.` : ''}\n\nYour original Drive files and ZIPs were not changed.`
+        : `No new photos or videos were added. ${result.skipped.toLocaleString()} already-imported item${result.skipped === 1 ? '' : 's'} skipped.`,
+    );
+  }
+
+  function startDriveImport() {
+    if (busyRef.current) return;
+    Alert.alert(
+      'Import everything from Google Drive',
+      'Frame will scan your Drive for normal photos/videos and ZIP archives, including Google Takeout ZIPs. ZIPs are processed one at a time so Frame does not keep the whole export on your iPhone. Originals stay untouched.\n\nThe first run may take a long time for a large library.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Import everything', onPress: () => setTimeout(runDriveImport, 150) },
+      ],
+    );
+  }
+
+  photosImportHandlerRef.current = startGoogleBulkImport;
+  driveImportHandlerRef.current = startDriveImport;
 
   useEffect(() => {
     const originalAlert = Alert.alert;
@@ -172,18 +269,30 @@ export default function FrameRoot() {
     Alert.alert = (title, message, buttons, options) => {
       if (title === 'Import photos' && Array.isArray(buttons)) {
         const nextButtons = buttons.slice();
-        const alreadyAdded = nextButtons.some((button) =>
+        const hasPhotos = nextButtons.some((button) =>
           String(button?.text || '').startsWith('Google Photos'),
         );
-        if (!alreadyAdded) {
-          const googleButton = {
-            text: 'Google Photos • bulk batches',
-            onPress: () => importHandlerRef.current?.(),
-          };
-          const cancelIndex = nextButtons.findIndex((button) => button?.style === 'cancel');
-          if (cancelIndex >= 0) nextButtons.splice(cancelIndex, 0, googleButton);
-          else nextButtons.push(googleButton);
+        const hasDrive = nextButtons.some((button) =>
+          String(button?.text || '').startsWith('Google Drive'),
+        );
+
+        const additions = [];
+        if (!hasPhotos) {
+          additions.push({
+            text: 'Google Photos • 2,000 batches',
+            onPress: () => photosImportHandlerRef.current?.(),
+          });
         }
+        if (!hasDrive) {
+          additions.push({
+            text: 'Google Drive / Takeout • import all',
+            onPress: () => driveImportHandlerRef.current?.(),
+          });
+        }
+
+        const cancelIndex = nextButtons.findIndex((button) => button?.style === 'cancel');
+        if (cancelIndex >= 0) nextButtons.splice(cancelIndex, 0, ...additions);
+        else nextButtons.push(...additions);
         return originalAlert.call(Alert, title, message, nextButtons, options);
       }
       return originalAlert.call(Alert, title, message, buttons, options);
@@ -226,11 +335,9 @@ export default function FrameRoot() {
         <View style={styles.blocker}>
           <View style={styles.panel}>
             <ActivityIndicator size="large" color="#FFFFFF" />
-            <Text style={styles.title}>Importing Google Photos batch</Text>
-            <Text style={styles.body}>{progress || 'Preparing Frame Drive…'}</Text>
-            <Text style={styles.note}>
-              Google caps each picker session at 2,000 items. Frame saves the batch to Drive, keeps only small previews on this iPhone, and can immediately start another batch when it finishes.
-            </Text>
+            <Text style={styles.title}>{busyTitle}</Text>
+            <Text style={styles.body}>{progress || 'Preparing…'}</Text>
+            {!!busyNote && <Text style={styles.note}>{busyNote}</Text>}
           </View>
         </View>
       )}

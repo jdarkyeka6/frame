@@ -3,6 +3,7 @@
     "name": "Frame",
     "slug": "frame-photo-library",
     "version": "0.2.0",
+    "scheme": "frame",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "ios": {

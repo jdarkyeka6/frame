@@ -24,6 +24,21 @@ jobs:
       - name: Check out Frame
         uses: actions/checkout@v4
 
+      - name: Verify Google OAuth config
+        shell: bash
+        run: |
+          if [ -z "$EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID" ]; then
+            echo "::error::Missing GitHub Actions secret GOOGLE_IOS_CLIENT_ID. Frame Google Photos cannot work without it."
+            exit 1
+          fi
+          case "$EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID" in
+            *.apps.googleusercontent.com) ;;
+            *)
+              echo "::error::GOOGLE_IOS_CLIENT_ID is not a valid Google iOS OAuth client ID."
+              exit 1
+              ;;
+          esac
+
       - name: Select Xcode
         run: |
           if [ -d /Applications/Xcode_26.6.app ]; then
